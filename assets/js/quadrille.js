@@ -112,7 +112,9 @@ export const Quadrille = {
   // --- Column resizing ------------------------------------------------------
 
   columnKeys() {
-    return Array.from(this.el.querySelectorAll(".quadrille-resizer")).map((r) => r.dataset.col)
+    return Array.from(this.el.querySelectorAll(".quadrille-header-cell[data-col]")).map(
+      (c) => c.dataset.col,
+    )
   },
 
   columnWidth(key) {

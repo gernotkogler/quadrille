@@ -152,7 +152,15 @@ defmodule Quadrille.Grid do
   end
 
   defp normalize_columns(columns) do
-    Enum.map(columns, fn col -> Map.put(col, :width_px, parse_width(Map.get(col, :width))) end)
+    last = length(columns) - 1
+
+    columns
+    |> Enum.with_index()
+    |> Enum.map(fn {col, index} ->
+      col
+      |> Map.put(:width_px, parse_width(Map.get(col, :width)))
+      |> Map.put(:fill?, index == last)
+    end)
   end
 
   defp parse_width(width) when is_integer(width) and width > 0, do: width
@@ -173,6 +181,10 @@ defmodule Quadrille.Grid do
     total = Enum.reduce(cols, 0, fn c, acc -> acc + c.width_px end)
     "#{vars} --q-total: #{total}px;"
   end
+
+  # The last column grows to fill the container; its width var is only a floor
+  # (flex-shrink 0), and it carries no resize handle.
+  defp cell_style(%{fill?: true} = col), do: "flex: 1 0 var(--q-col-#{col.key});"
 
   defp cell_style(col), do: "width: var(--q-col-#{col.key}); flex: 0 0 var(--q-col-#{col.key});"
 
@@ -198,16 +210,18 @@ defmodule Quadrille.Grid do
         class="quadrille-viewport"
         style={"height: #{@height}; overflow: auto;"}
       >
-        <div class="quadrille-content" style="width: var(--q-total);">
+        <div class="quadrille-content" style="width: 100%; min-width: var(--q-total);">
           <div class="quadrille-header" role="row">
             <div
               :for={col <- @cols}
               class="quadrille-cell quadrille-header-cell"
+              data-col={col.key}
               style={cell_style(col)}
               role="columnheader"
             >
               <span class="quadrille-header-label">{col.label}</span>
-              <span class="quadrille-resizer" data-col={col.key} aria-hidden="true"></span>
+              <span :if={not col.fill?} class="quadrille-resizer" data-col={col.key} aria-hidden="true">
+              </span>
             </div>
           </div>
 
