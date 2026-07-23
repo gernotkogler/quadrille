@@ -33,6 +33,7 @@ const MIN_COLUMN_WIDTH = 40
 export const Quadrille = {
   mounted() {
     this.viewport = this.el.querySelector(".quadrille-viewport")
+    this.headerViewport = this.el.querySelector(".quadrille-header-viewport")
     this.rowHeight = parseInt(this.el.dataset.rowHeight, 10) || 32
     this.overscan = parseInt(this.el.dataset.overscan, 10) || 20
     this.margin = Math.max(1, Math.floor(this.overscan / 2))
@@ -44,7 +45,10 @@ export const Quadrille = {
     this.restoreWidths()
     this.measure()
 
-    this.onScroll = () => this.scheduleCheck()
+    this.onScroll = () => {
+      this.syncHeaderScroll()
+      this.scheduleCheck()
+    }
     this.viewport.addEventListener("scroll", this.onScroll, { passive: true })
     this.onResize = () => {
       this.measure()
@@ -63,6 +67,8 @@ export const Quadrille = {
     // Re-assert any resized widths in case a patch reset the root style.
     this.applyWidths(this.widths)
     this.reconcile()
+    this.measureScrollbar()
+    this.syncHeaderScroll()
     this.maybeLoad()
   },
 
@@ -78,11 +84,24 @@ export const Quadrille = {
   // Tell the component how many rows the viewport can show so it can size the
   // buffer. Recomputed on resize.
   measure() {
+    this.measureScrollbar()
     const rows = Math.ceil(this.viewport.clientHeight / this.rowHeight)
     if (rows > 0 && rows !== this.viewportRows) {
       this.viewportRows = rows
       this.pushEventTo(this.el, "viewport", { rows })
     }
+  },
+
+  // Reserve the body's vertical-scrollbar width on the header so columns line
+  // up (0 for overlay scrollbars, ~15px for classic ones).
+  measureScrollbar() {
+    const width = this.viewport.offsetWidth - this.viewport.clientWidth
+    this.el.style.setProperty("--q-scrollbar", `${Math.max(0, width)}px`)
+  },
+
+  // Keep the (clipped) header aligned with the body's horizontal scroll.
+  syncHeaderScroll() {
+    if (this.headerViewport) this.headerViewport.scrollLeft = this.viewport.scrollLeft
   },
 
   scheduleCheck() {

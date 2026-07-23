@@ -17,11 +17,20 @@
   position: relative;
 }
 
+/* The header lives outside the scroll area so the scrollbar only covers the
+   rows. It is clipped horizontally and kept in sync with the body's horizontal
+   scroll by the hook. The padding-right reserves the body's scrollbar gutter
+   (set by the hook) so columns line up. */
+.quadrille-header-viewport {
+  overflow: hidden;
+  box-sizing: border-box;
+  padding-right: var(--q-scrollbar, 0px);
+}
+
 .quadrille-header {
   display: flex;
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  width: 100%;
+  min-width: var(--q-total);
   font-weight: 600;
 }
 

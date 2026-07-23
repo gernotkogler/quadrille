@@ -205,27 +205,29 @@ defmodule Quadrille.Grid do
       class="quadrille"
       style={root_style(@cols)}
     >
+      <div class="quadrille-header-viewport">
+        <div class="quadrille-header" role="row">
+          <div
+            :for={col <- @cols}
+            class="quadrille-cell quadrille-header-cell"
+            data-col={col.key}
+            data-fill={col.fill?}
+            style={cell_style(col)}
+            role="columnheader"
+          >
+            <span class="quadrille-header-label">{col.label}</span>
+            <span :if={not col.fill?} class="quadrille-resizer" data-col={col.key} aria-hidden="true">
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div
         id={"#{@id}-viewport"}
         class="quadrille-viewport"
         style={"height: #{@height}; overflow: auto;"}
       >
         <div class="quadrille-content" style="width: 100%; min-width: var(--q-total);">
-          <div class="quadrille-header" role="row">
-            <div
-              :for={col <- @cols}
-              class="quadrille-cell quadrille-header-cell"
-              data-col={col.key}
-              data-fill={col.fill?}
-              style={cell_style(col)}
-              role="columnheader"
-            >
-              <span class="quadrille-header-label">{col.label}</span>
-              <span :if={not col.fill?} class="quadrille-resizer" data-col={col.key} aria-hidden="true">
-              </span>
-            </div>
-          </div>
-
           <div class="quadrille-spacer" style={"height: #{@spacer_height}px;"}>
             <div class="quadrille-window" style={"transform: translateY(#{@translate_y}px);"}>
               <div
