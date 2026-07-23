@@ -11,6 +11,7 @@ defmodule Quadrille.MixProject do
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      aliases: aliases(),
       description: description(),
       package: package(),
       docs: docs(),
@@ -28,8 +29,15 @@ defmodule Quadrille.MixProject do
   defp deps do
     [
       {:phoenix_live_view, "~> 1.1"},
-      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      # Dev-only: self-contained demo server (`mix dev`).
+      {:bandit, "~> 1.0", only: :dev},
+      {:jason, "~> 1.4", only: :dev}
     ]
+  end
+
+  defp aliases do
+    [dev: "run --no-halt dev.exs"]
   end
 
   defp description do
@@ -41,7 +49,7 @@ defmodule Quadrille.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib priv assets/js .formatter.exs mix.exs README.md LICENSE)
+      files: ~w(lib priv assets/js assets/css .formatter.exs mix.exs README.md LICENSE)
     ]
   end
 

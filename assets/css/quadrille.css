@@ -1,0 +1,41 @@
+/* Structural styles for Quadrille. Purely layout — colors/typography are yours. */
+
+.quadrille {
+  display: flex;
+  flex-direction: column;
+}
+
+.quadrille-header {
+  display: flex;
+  font-weight: 600;
+}
+
+.quadrille-viewport {
+  will-change: scroll-position;
+  /* Prevent the browser from re-anchoring scroll when the buffer swaps. */
+  overflow-anchor: none;
+}
+
+.quadrille-spacer {
+  position: relative;
+}
+
+.quadrille-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.quadrille-row {
+  display: flex;
+  box-sizing: border-box;
+}
+
+.quadrille-cell {
+  padding: 4px 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
