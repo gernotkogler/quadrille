@@ -15,6 +15,12 @@
  * Column widths live in CSS variables the server only renders once (at their
  * initial values), so LiveView's diff never clobbers a user's resized columns.
  *
+ * Style: LiveView drives hooks by calling `mounted`/`updated`/`destroyed` as
+ * methods on the hook object (with `this` = the hook context), so that thin
+ * shell is unavoidable. Everything else is written functionally: `createGrid`
+ * closes over the context and DOM, keeps state in local variables, and exposes
+ * plain functions — no `this`, no shared mutable object.
+ *
  * Register it with your LiveSocket:
  *
  *     import { Quadrille } from "quadrille"
@@ -30,185 +36,168 @@ import { shouldLoadWindow, clampResizeDelta, reconcileWidths } from "./quadrille
 
 const MIN_COLUMN_WIDTH = 40
 
-export const Quadrille = {
-  mounted() {
-    this.viewport = this.el.querySelector(".quadrille-viewport")
-    this.headerViewport = this.el.querySelector(".quadrille-header-viewport")
-    this.rowHeight = parseInt(this.el.dataset.rowHeight, 10) || 32
-    this.overscan = parseInt(this.el.dataset.overscan, 10) || 20
-    this.margin = Math.max(1, Math.floor(this.overscan / 2))
-    this.viewportRows = 0
-    this.inFlight = false
-    this.frame = null
-    this.storageKey = `quadrille:widths:${this.el.id}`
+/**
+ * Wire up a grid for one hook context. Returns `{ updated, destroyed }` for the
+ * hook shell to delegate to; all state lives in this closure.
+ *
+ * @param {object} hook - the LiveView hook context (provides el, pushEventTo).
+ */
+function createGrid(hook) {
+  const el = hook.el
+  const viewport = el.querySelector(".quadrille-viewport")
+  const headerViewport = el.querySelector(".quadrille-header-viewport")
+  const rowHeight = parseInt(el.dataset.rowHeight, 10) || 32
+  const overscan = parseInt(el.dataset.overscan, 10) || 20
+  const margin = Math.max(1, Math.floor(overscan / 2))
+  const storageKey = `quadrille:widths:${el.id}`
 
-    this.restoreWidths()
-    this.measure()
+  let viewportRows = 0
+  let inFlight = false
+  let frame = null
+  let widths = {}
 
-    this.onScroll = () => {
-      this.syncHeaderScroll()
-      this.scheduleCheck()
-    }
-    this.viewport.addEventListener("scroll", this.onScroll, { passive: true })
-    this.onResize = () => {
-      this.measure()
-      this.reconcile()
-    }
-    window.addEventListener("resize", this.onResize)
+  // --- CSS-variable helpers -------------------------------------------------
 
-    this.onPointerDown = (e) => this.startResize(e)
-    this.el.addEventListener("pointerdown", this.onPointerDown)
-  },
+  const columnWidth = (key) => parseFloat(el.style.getPropertyValue(`--q-col-${key}`)) || 0
+  const setColumnWidth = (key, px) => el.style.setProperty(`--q-col-${key}`, `${px}px`)
 
-  updated() {
-    // The component just patched in a new buffer; allow the next request and
-    // catch up in case the user kept scrolling while this one was in flight.
-    this.inFlight = false
-    // Re-assert any resized widths in case a patch reset the root style.
-    this.applyWidths(this.widths)
-    this.reconcile()
-    this.measureScrollbar()
-    this.syncHeaderScroll()
-    this.maybeLoad()
-  },
+  const columnKeys = () =>
+    Array.from(el.querySelectorAll(".quadrille-header-cell[data-col]")).map((c) => c.dataset.col)
 
-  destroyed() {
-    if (this.viewport) this.viewport.removeEventListener("scroll", this.onScroll)
-    window.removeEventListener("resize", this.onResize)
-    this.el.removeEventListener("pointerdown", this.onPointerDown)
-    if (this.frame) cancelAnimationFrame(this.frame)
-  },
+  // Resizable columns — everything except the fill column.
+  const fixedKeys = () =>
+    Array.from(el.querySelectorAll(".quadrille-header-cell[data-col]:not([data-fill])")).map(
+      (c) => c.dataset.col,
+    )
+
+  const fillKey = () => {
+    const cell = el.querySelector(".quadrille-header-cell[data-fill]")
+    return cell ? cell.dataset.col : null
+  }
+
+  // The fill column's configured width is its floor; it never shrinks past it.
+  const fillFloor = () => {
+    const key = fillKey()
+    return key ? columnWidth(key) : 0
+  }
+
+  // Total width available to the fixed columns without overflowing.
+  const budget = () => viewport.clientWidth - fillFloor()
+
+  const recomputeTotal = () => {
+    const total = columnKeys().reduce((sum, key) => sum + columnWidth(key), 0)
+    el.style.setProperty("--q-total", `${total}px`)
+  }
 
   // --- Virtualization -------------------------------------------------------
 
-  // Tell the component how many rows the viewport can show so it can size the
-  // buffer. Recomputed on resize.
-  measure() {
-    this.measureScrollbar()
-    const rows = Math.ceil(this.viewport.clientHeight / this.rowHeight)
-    if (rows > 0 && rows !== this.viewportRows) {
-      this.viewportRows = rows
-      this.pushEventTo(this.el, "viewport", { rows })
-    }
-  },
-
   // Reserve the body's vertical-scrollbar width on the header so columns line
   // up (0 for overlay scrollbars, ~15px for classic ones).
-  measureScrollbar() {
-    const width = this.viewport.offsetWidth - this.viewport.clientWidth
-    this.el.style.setProperty("--q-scrollbar", `${Math.max(0, width)}px`)
-  },
+  const measureScrollbar = () => {
+    const width = viewport.offsetWidth - viewport.clientWidth
+    el.style.setProperty("--q-scrollbar", `${Math.max(0, width)}px`)
+  }
 
   // Keep the (clipped) header aligned with the body's horizontal scroll.
-  syncHeaderScroll() {
-    if (this.headerViewport) this.headerViewport.scrollLeft = this.viewport.scrollLeft
-  },
+  const syncHeaderScroll = () => {
+    if (headerViewport) headerViewport.scrollLeft = viewport.scrollLeft
+  }
 
-  scheduleCheck() {
-    if (this.frame) return
-    this.frame = requestAnimationFrame(() => {
-      this.frame = null
-      this.maybeLoad()
-    })
-  },
+  // Tell the component how many rows the viewport can show so it can size the
+  // buffer. Recomputed on resize.
+  const measure = () => {
+    measureScrollbar()
+    const rows = Math.ceil(viewport.clientHeight / rowHeight)
+    if (rows > 0 && rows !== viewportRows) {
+      viewportRows = rows
+      hook.pushEventTo(el, "viewport", { rows })
+    }
+  }
 
   // Request a new buffer if the visible range is no longer comfortably inside
   // the loaded one.
-  maybeLoad() {
-    if (this.inFlight || this.viewportRows === 0) return
+  const maybeLoad = () => {
+    if (inFlight || viewportRows === 0) return
 
-    const offset = parseInt(this.el.dataset.offset, 10) || 0
-    const limit = parseInt(this.el.dataset.limit, 10) || 0
-    const totalCount = parseInt(this.el.dataset.totalCount, 10) || 0
+    const offset = parseInt(el.dataset.offset, 10) || 0
+    const limit = parseInt(el.dataset.limit, 10) || 0
+    const totalCount = parseInt(el.dataset.totalCount, 10) || 0
+    const firstVisible = Math.floor(viewport.scrollTop / rowHeight)
 
-    const firstVisible = Math.floor(this.viewport.scrollTop / this.rowHeight)
-
-    const load = shouldLoadWindow({
-      firstVisible,
-      viewportRows: this.viewportRows,
-      offset,
-      limit,
-      totalCount,
-      margin: this.margin,
-    })
+    const load = shouldLoadWindow({ firstVisible, viewportRows, offset, limit, totalCount, margin })
 
     if (load) {
-      this.inFlight = true
-      this.pushEventTo(this.el, "load_window", { first_visible_row: firstVisible })
+      inFlight = true
+      hook.pushEventTo(el, "load_window", { first_visible_row: firstVisible })
     }
-  },
+  }
 
-  // --- Column resizing ------------------------------------------------------
+  const scheduleCheck = () => {
+    if (frame) return
+    frame = requestAnimationFrame(() => {
+      frame = null
+      maybeLoad()
+    })
+  }
 
-  columnKeys() {
-    return Array.from(this.el.querySelectorAll(".quadrille-header-cell[data-col]")).map(
-      (c) => c.dataset.col,
-    )
-  },
-
-  // Resizable columns — everything except the fill column.
-  fixedKeys() {
-    return Array.from(
-      this.el.querySelectorAll(".quadrille-header-cell[data-col]:not([data-fill])"),
-    ).map((c) => c.dataset.col)
-  },
-
-  fillKey() {
-    const cell = this.el.querySelector(".quadrille-header-cell[data-fill]")
-    return cell ? cell.dataset.col : null
-  },
-
-  // The fill column's configured width is its floor; it never shrinks past it.
-  fillFloor() {
-    const key = this.fillKey()
-    return key ? this.columnWidth(key) : 0
-  },
-
-  // Total width available to the fixed columns without overflowing.
-  budget() {
-    return this.viewport.clientWidth - this.fillFloor()
-  },
+  // --- Column widths --------------------------------------------------------
 
   // Shrink fixed columns if their total (e.g. from stale saved widths) exceeds
   // the budget, so every column stays visible and none goes below its minimum.
-  // Takes width only from columns still above the floor, iterating so that
-  // columns pinned at the floor don't force an overflow. Runs on mount and on
-  // window resize.
-  reconcile() {
-    const keys = this.fixedKeys()
-    const budget = this.budget()
-
-    if (keys.length > 0 && budget > 0) {
-      const widths = keys.map((k) => this.columnWidth(k))
-      const fitted = reconcileWidths(widths, budget, MIN_COLUMN_WIDTH)
-      keys.forEach((k, i) => this.setColumnWidth(k, fitted[i]))
+  const reconcile = () => {
+    const keys = fixedKeys()
+    const available = budget()
+    if (keys.length > 0 && available > 0) {
+      const fitted = reconcileWidths(
+        keys.map(columnWidth),
+        available,
+        MIN_COLUMN_WIDTH,
+      )
+      keys.forEach((key, i) => setColumnWidth(key, fitted[i]))
     }
+    recomputeTotal()
+  }
 
-    this.recomputeTotal()
-  },
+  const applyWidths = (saved) => {
+    if (!saved) return
+    let changed = false
+    for (const [key, px] of Object.entries(saved)) {
+      if (px > 0 && columnWidth(key) !== px) {
+        setColumnWidth(key, px)
+        changed = true
+      }
+    }
+    if (changed) recomputeTotal()
+  }
 
-  columnWidth(key) {
-    const raw = this.el.style.getPropertyValue(`--q-col-${key}`)
-    return parseFloat(raw) || 0
-  },
+  const persistWidths = () => {
+    widths = Object.fromEntries(columnKeys().map((key) => [key, columnWidth(key)]))
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(widths))
+    } catch (_e) {
+      // localStorage unavailable (private mode, quota) — widths just won't persist.
+    }
+  }
 
-  setColumnWidth(key, px) {
-    this.el.style.setProperty(`--q-col-${key}`, `${px}px`)
-  },
+  const restoreWidths = () => {
+    try {
+      const saved = localStorage.getItem(storageKey)
+      widths = saved ? JSON.parse(saved) : {}
+    } catch (_e) {
+      widths = {}
+    }
+    applyWidths(widths)
+    reconcile()
+  }
 
-  recomputeTotal() {
-    const total = this.columnKeys().reduce((sum, key) => sum + this.columnWidth(key), 0)
-    this.el.style.setProperty("--q-total", `${total}px`)
-  },
-
-  startResize(e) {
+  // A handle trades width only with the column immediately to its right, so
+  // dragging the email|city boundary shrinks city and widens email. The
+  // neighbor may be another fixed column or the fill column; either way the
+  // total stays constant, so nothing ever overflows.
+  const startResize = (e) => {
     const handle = e.target.closest(".quadrille-resizer")
     if (!handle) return
 
-    // A handle trades width only with the column immediately to its right, so
-    // dragging the email|city boundary shrinks city and widens email. The
-    // neighbor may be another fixed column or the fill column; either way the
-    // total stays constant, so nothing ever overflows.
     const headerCell = handle.closest(".quadrille-header-cell")
     const rightCell = headerCell && headerCell.nextElementSibling
     if (!rightCell) return
@@ -218,13 +207,13 @@ export const Quadrille = {
     const rightKey = rightCell.dataset.col
     const rightIsFill = rightCell.hasAttribute("data-fill")
     const startX = e.clientX
-    const startWidth = this.columnWidth(key)
+    const startWidth = columnWidth(key)
     // The neighbor's *rendered* width — the fill column has no fixed var.
     const startRight = Math.round(rightCell.getBoundingClientRect().width)
-    const rightMin = rightIsFill ? this.fillFloor() : MIN_COLUMN_WIDTH
+    const rightMin = rightIsFill ? fillFloor() : MIN_COLUMN_WIDTH
 
     handle.setPointerCapture(e.pointerId)
-    this.el.classList.add("quadrille-resizing")
+    el.classList.add("quadrille-resizing")
 
     const onMove = (ev) => {
       const delta = clampResizeDelta(
@@ -234,59 +223,76 @@ export const Quadrille = {
         MIN_COLUMN_WIDTH,
         rightMin,
       )
-      this.setColumnWidth(key, startWidth + delta)
+      setColumnWidth(key, startWidth + delta)
       // The fill neighbor shrinks on its own as this column's var grows.
-      if (!rightIsFill) this.setColumnWidth(rightKey, startRight - delta)
-      this.recomputeTotal()
+      if (!rightIsFill) setColumnWidth(rightKey, startRight - delta)
+      recomputeTotal()
     }
 
     const onUp = () => {
       handle.removeEventListener("pointermove", onMove)
       handle.removeEventListener("pointerup", onUp)
       handle.removeEventListener("pointercancel", onUp)
-      this.el.classList.remove("quadrille-resizing")
-      this.persistWidths()
+      el.classList.remove("quadrille-resizing")
+      persistWidths()
     }
 
     handle.addEventListener("pointermove", onMove)
     handle.addEventListener("pointerup", onUp)
     handle.addEventListener("pointercancel", onUp)
-  },
+  }
 
-  // Snapshot current widths to localStorage and to `this.widths`.
-  persistWidths() {
-    const widths = {}
-    for (const key of this.columnKeys()) widths[key] = this.columnWidth(key)
-    this.widths = widths
-    try {
-      localStorage.setItem(this.storageKey, JSON.stringify(widths))
-    } catch (_e) {
-      // localStorage unavailable (private mode, quota) — widths just won't persist.
-    }
-  },
+  // --- Listeners + lifecycle ------------------------------------------------
 
-  restoreWidths() {
-    this.widths = {}
-    try {
-      const saved = localStorage.getItem(this.storageKey)
-      if (saved) this.widths = JSON.parse(saved)
-    } catch (_e) {
-      this.widths = {}
-    }
-    this.applyWidths(this.widths)
-    this.reconcile()
-  },
+  const onScroll = () => {
+    syncHeaderScroll()
+    scheduleCheck()
+  }
+  const onResize = () => {
+    measure()
+    reconcile()
+  }
+  const onPointerDown = (e) => startResize(e)
 
-  applyWidths(widths) {
-    if (!widths) return
-    let changed = false
-    for (const [key, px] of Object.entries(widths)) {
-      if (px > 0 && this.columnWidth(key) !== px) {
-        this.setColumnWidth(key, px)
-        changed = true
-      }
-    }
-    if (changed) this.recomputeTotal()
+  restoreWidths()
+  measure()
+  viewport.addEventListener("scroll", onScroll, { passive: true })
+  window.addEventListener("resize", onResize)
+  el.addEventListener("pointerdown", onPointerDown)
+
+  return {
+    updated() {
+      // The component just patched in a new buffer; allow the next request and
+      // catch up in case the user kept scrolling while this one was in flight.
+      inFlight = false
+      // Re-assert any resized widths in case a patch reset the root style.
+      applyWidths(widths)
+      reconcile()
+      measureScrollbar()
+      syncHeaderScroll()
+      maybeLoad()
+    },
+
+    destroyed() {
+      viewport.removeEventListener("scroll", onScroll)
+      window.removeEventListener("resize", onResize)
+      el.removeEventListener("pointerdown", onPointerDown)
+      if (frame) cancelAnimationFrame(frame)
+    },
+  }
+}
+
+// Thin lifecycle shell: LiveView calls these with `this` = hook context. Each
+// just delegates to the functional grid created on mount.
+export const Quadrille = {
+  mounted() {
+    this.grid = createGrid(this)
+  },
+  updated() {
+    this.grid.updated()
+  },
+  destroyed() {
+    this.grid.destroyed()
   },
 }
 
