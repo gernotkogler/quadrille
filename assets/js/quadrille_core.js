@@ -11,7 +11,7 @@
  * range is no longer comfortably inside the loaded one (within `margin` of an
  * edge) and there is more data in that direction.
  */
-export function shouldLoadWindow({ firstVisible, viewportRows, offset, limit, totalCount, margin }) {
+export const shouldLoadWindow = ({ firstVisible, viewportRows, offset, limit, totalCount, margin }) => {
   const nearTop = firstVisible < offset + margin && offset > 0
   const lastVisible = firstVisible + viewportRows
   const nearBottom = lastVisible > offset + limit - margin && offset + limit < totalCount
@@ -24,7 +24,7 @@ export function shouldLoadWindow({ firstVisible, viewportRows, offset, limit, to
  * shrink by at most its own slack (`startWidth - selfMin`). Returns the applied
  * delta.
  */
-export function clampResizeDelta(rawDelta, startWidth, startRight, selfMin, rightMin) {
+export const clampResizeDelta = (rawDelta, startWidth, startRight, selfMin, rightMin) => {
   const maxDelta = startRight - rightMin
   const minDelta = -(startWidth - selfMin)
   return Math.max(minDelta, Math.min(maxDelta, rawDelta))
@@ -36,22 +36,24 @@ export function clampResizeDelta(rawDelta, startWidth, startRight, selfMin, righ
  * floor don't force an overflow. Widths that already fit are returned unchanged
  * (floored). Never returns a width below `minWidth`.
  */
-export function reconcileWidths(widths, budget, minWidth, maxIter = 12) {
-  const result = widths.slice()
-  let sum = result.reduce((a, b) => a + b, 0)
+export const reconcileWidths = (widths, budget, minWidth, maxIter = 12) => {
+  // One proportional shrink pass; returns the same array reference (no change)
+  // once it fits or nothing can shrink further.
+  const shrinkOnce = (ws) => {
+    const sum = ws.reduce((a, b) => a + b, 0)
+    if (budget <= 0 || sum <= budget) return ws
 
-  for (let iter = 0; budget > 0 && iter < maxIter && sum > budget; iter++) {
-    const shrinkable = result.reduce((s, w) => s + (w > minWidth ? w : 0), 0)
-    if (shrinkable === 0) break
+    const shrinkable = ws.reduce((s, w) => s + (w > minWidth ? w : 0), 0)
+    if (shrinkable === 0) return ws
 
     const excess = sum - budget
-    for (let i = 0; i < result.length; i++) {
-      if (result[i] > minWidth) {
-        result[i] = Math.max(minWidth, result[i] - (excess * result[i]) / shrinkable)
-      }
-    }
-    sum = result.reduce((a, b) => a + b, 0)
+    return ws.map((w) => (w > minWidth ? Math.max(minWidth, w - (excess * w) / shrinkable) : w))
   }
 
-  return result.map((w) => Math.floor(w))
+  const iterate = (ws, remaining) => {
+    const next = shrinkOnce(ws)
+    return next === ws || remaining <= 0 ? next : iterate(next, remaining - 1)
+  }
+
+  return iterate(widths.slice(), maxIter).map((w) => Math.floor(w))
 }

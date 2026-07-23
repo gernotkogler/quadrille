@@ -42,7 +42,7 @@ const MIN_COLUMN_WIDTH = 40
  *
  * @param {object} hook - the LiveView hook context (provides el, pushEventTo).
  */
-function createGrid(hook) {
+const createGrid = (hook) => {
   const el = hook.el
   const viewport = el.querySelector(".quadrille-viewport")
   const headerViewport = el.querySelector(".quadrille-header-viewport")
@@ -51,10 +51,9 @@ function createGrid(hook) {
   const margin = Math.max(1, Math.floor(overscan / 2))
   const storageKey = `quadrille:widths:${el.id}`
 
-  let viewportRows = 0
-  let inFlight = false
-  let frame = null
-  let widths = {}
+  // Mutable state lives on one const object (its fields change, the binding
+  // never does), so the whole module stays `let`-free.
+  const state = { viewportRows: 0, inFlight: false, frame: null, widths: {} }
 
   // --- CSS-variable helpers -------------------------------------------------
 
@@ -108,8 +107,8 @@ function createGrid(hook) {
   const measure = () => {
     measureScrollbar()
     const rows = Math.ceil(viewport.clientHeight / rowHeight)
-    if (rows > 0 && rows !== viewportRows) {
-      viewportRows = rows
+    if (rows > 0 && rows !== state.viewportRows) {
+      state.viewportRows = rows
       hook.pushEventTo(el, "viewport", { rows })
     }
   }
@@ -117,25 +116,32 @@ function createGrid(hook) {
   // Request a new buffer if the visible range is no longer comfortably inside
   // the loaded one.
   const maybeLoad = () => {
-    if (inFlight || viewportRows === 0) return
+    if (state.inFlight || state.viewportRows === 0) return
 
     const offset = parseInt(el.dataset.offset, 10) || 0
     const limit = parseInt(el.dataset.limit, 10) || 0
     const totalCount = parseInt(el.dataset.totalCount, 10) || 0
     const firstVisible = Math.floor(viewport.scrollTop / rowHeight)
 
-    const load = shouldLoadWindow({ firstVisible, viewportRows, offset, limit, totalCount, margin })
+    const load = shouldLoadWindow({
+      firstVisible,
+      viewportRows: state.viewportRows,
+      offset,
+      limit,
+      totalCount,
+      margin,
+    })
 
     if (load) {
-      inFlight = true
+      state.inFlight = true
       hook.pushEventTo(el, "load_window", { first_visible_row: firstVisible })
     }
   }
 
   const scheduleCheck = () => {
-    if (frame) return
-    frame = requestAnimationFrame(() => {
-      frame = null
+    if (state.frame) return
+    state.frame = requestAnimationFrame(() => {
+      state.frame = null
       maybeLoad()
     })
   }
@@ -160,33 +166,33 @@ function createGrid(hook) {
 
   const applyWidths = (saved) => {
     if (!saved) return
-    let changed = false
-    for (const [key, px] of Object.entries(saved)) {
-      if (px > 0 && columnWidth(key) !== px) {
-        setColumnWidth(key, px)
-        changed = true
-      }
-    }
-    if (changed) recomputeTotal()
+    const changes = Object.entries(saved).filter(
+      ([key, px]) => px > 0 && columnWidth(key) !== px,
+    )
+    changes.forEach(([key, px]) => setColumnWidth(key, px))
+    if (changes.length > 0) recomputeTotal()
   }
 
   const persistWidths = () => {
-    widths = Object.fromEntries(columnKeys().map((key) => [key, columnWidth(key)]))
+    state.widths = Object.fromEntries(columnKeys().map((key) => [key, columnWidth(key)]))
     try {
-      localStorage.setItem(storageKey, JSON.stringify(widths))
+      localStorage.setItem(storageKey, JSON.stringify(state.widths))
     } catch (_e) {
       // localStorage unavailable (private mode, quota) — widths just won't persist.
     }
   }
 
   const restoreWidths = () => {
-    try {
-      const saved = localStorage.getItem(storageKey)
-      widths = saved ? JSON.parse(saved) : {}
-    } catch (_e) {
-      widths = {}
+    const read = () => {
+      try {
+        const saved = localStorage.getItem(storageKey)
+        return saved ? JSON.parse(saved) : {}
+      } catch (_e) {
+        return {}
+      }
     }
-    applyWidths(widths)
+    state.widths = read()
+    applyWidths(state.widths)
     reconcile()
   }
 
@@ -264,9 +270,9 @@ function createGrid(hook) {
     updated() {
       // The component just patched in a new buffer; allow the next request and
       // catch up in case the user kept scrolling while this one was in flight.
-      inFlight = false
+      state.inFlight = false
       // Re-assert any resized widths in case a patch reset the root style.
-      applyWidths(widths)
+      applyWidths(state.widths)
       reconcile()
       measureScrollbar()
       syncHeaderScroll()
@@ -277,7 +283,7 @@ function createGrid(hook) {
       viewport.removeEventListener("scroll", onScroll)
       window.removeEventListener("resize", onResize)
       el.removeEventListener("pointerdown", onPointerDown)
-      if (frame) cancelAnimationFrame(frame)
+      if (state.frame) cancelAnimationFrame(state.frame)
     },
   }
 }
