@@ -5,15 +5,24 @@
   flex-direction: column;
 }
 
-.quadrille-header {
-  display: flex;
-  font-weight: 600;
-}
-
 .quadrille-viewport {
   will-change: scroll-position;
   /* Prevent the browser from re-anchoring scroll when the buffer swaps. */
   overflow-anchor: none;
+}
+
+/* Sized to the sum of column widths so both axes scroll and the sticky header
+   tracks horizontal scrolling. */
+.quadrille-content {
+  position: relative;
+}
+
+.quadrille-header {
+  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: 600;
 }
 
 .quadrille-spacer {
@@ -38,4 +47,37 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.quadrille-header-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.quadrille-header-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Drag handle on the right edge of each header cell. */
+.quadrille-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.quadrille-resizer:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.quadrille.quadrille-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
