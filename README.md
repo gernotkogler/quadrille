@@ -62,6 +62,46 @@ def deps do
 end
 ```
 
+Quadrille ships a JS hook and a stylesheet from the dependency's `assets/`
+directory (there is no npm package). Wire both into your app:
+
+**1. Register the hook** with your `LiveSocket`. With the default esbuild setup,
+import it from the dependency by relative path:
+
+```js
+// assets/js/app.js
+import { Quadrille } from "../../deps/quadrille/assets/js/quadrille.js"
+
+const liveSocket = new LiveSocket("/live", Socket, {
+  params: { _csrf_token: csrfToken },
+  hooks: { Quadrille },
+})
+```
+
+**2. Include the stylesheet.** It is structural only (layout, no colors), so
+import it and style the `.quadrille-*` classes to taste:
+
+```css
+/* assets/css/app.css */
+@import "../../deps/quadrille/assets/css/quadrille.css";
+```
+
+Then render the grid in any LiveView (see the `Quadrille.Grid` moduledoc for the
+full option list):
+
+```elixir
+<.live_component
+  module={Quadrille.Grid}
+  id="people"
+  data_source={MyApp.PeopleSource}
+  columns={[
+    %{key: :id, label: "ID", width: "80px"},
+    %{key: :name, label: "Name"},
+    %{key: :email, label: "Email"}
+  ]}
+/>
+```
+
 ## License
 
 MIT © Gernot Kogler

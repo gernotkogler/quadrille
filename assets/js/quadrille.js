@@ -50,13 +50,10 @@ const createGrid = (hook) => {
   const overscan = parseInt(el.dataset.overscan, 10) || 20
   const margin = Math.max(1, Math.floor(overscan / 2))
   const storageKey = `quadrille:widths:${el.id}`
-
-  // Mutable state lives on one const object (its fields change, the binding
-  // never does), so the whole module stays `let`-free.
   const state = { viewportRows: 0, inFlight: false, frame: null, widths: {} }
 
   // --- CSS-variable helpers -------------------------------------------------
-
+qq
   const columnWidth = (key) => parseFloat(el.style.getPropertyValue(`--q-col-${key}`)) || 0
   const setColumnWidth = (key, px) => el.style.setProperty(`--q-col-${key}`, `${px}px`)
 
@@ -196,10 +193,9 @@ const createGrid = (hook) => {
     reconcile()
   }
 
-  // A handle trades width only with the column immediately to its right, so
-  // dragging the email|city boundary shrinks city and widens email. The
-  // neighbor may be another fixed column or the fill column; either way the
-  // total stays constant, so nothing ever overflows.
+  // A handle trades width only with the column immediately to its right.
+  // The neighbor may be another fixed column or the fill column; either
+  // way the total stays constant, so nothing ever overflows.
   const startResize = (e) => {
     const handle = e.target.closest(".quadrille-resizer")
     if (!handle) return

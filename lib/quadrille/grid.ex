@@ -47,6 +47,15 @@ defmodule Quadrille.Grid do
   drags the `--q-col-<key>` variable and persists the result to `localStorage`
   (key `quadrille:widths:<id>`). Because the server-rendered widths never change,
   LiveView's diff never clobbers a user's resized columns.
+
+  ## Accessibility
+
+  The root is a `role="grid"` and carries `aria-rowcount`/`aria-colcount` for the
+  *whole* dataset, while each row and cell carries its absolute
+  `aria-rowindex`/`aria-colindex`. This matters precisely because of
+  virtualization: the DOM only ever holds a buffer, so without these a screen
+  reader would announce the handful of rendered rows as if they were the entire
+  table.
   """
   use Phoenix.LiveComponent
 
@@ -197,6 +206,7 @@ defmodule Quadrille.Grid do
     <div
       id={@id}
       phx-hook="Quadrille"
+      phx-target={@myself}
       data-row-height={@row_height}
       data-overscan={@overscan}
       data-total-count={@total_count}
@@ -204,16 +214,21 @@ defmodule Quadrille.Grid do
       data-limit={@limit}
       class="quadrille"
       style={root_style(@cols)}
+      role="grid"
+      aria-readonly="true"
+      aria-rowcount={@total_count + 1}
+      aria-colcount={length(@cols)}
     >
-      <div class="quadrille-header-viewport">
-        <div class="quadrille-header" role="row">
+      <div class="quadrille-header-viewport" role="rowgroup">
+        <div class="quadrille-header" role="row" aria-rowindex="1">
           <div
-            :for={col <- @cols}
+            :for={{col, col_index} <- Enum.with_index(@cols)}
             class="quadrille-cell quadrille-header-cell"
             data-col={col.key}
             data-fill={col.fill?}
             style={cell_style(col)}
             role="columnheader"
+            aria-colindex={col_index + 1}
           >
             <span class="quadrille-header-label">{col.label}</span>
             <span :if={not col.fill?} class="quadrille-resizer" data-col={col.key} aria-hidden="true">
@@ -229,19 +244,21 @@ defmodule Quadrille.Grid do
       >
         <div class="quadrille-content" style="width: 100%; min-width: var(--q-total);">
           <div class="quadrille-spacer" style={"height: #{@spacer_height}px;"}>
-            <div class="quadrille-window" style={"transform: translateY(#{@translate_y}px);"}>
+            <div class="quadrille-window" role="rowgroup" style={"transform: translateY(#{@translate_y}px);"}>
               <div
                 :for={{row, index} <- Enum.with_index(@rows)}
                 id={row_dom_id(assigns, row, index)}
                 class="quadrille-row"
                 style={"height: #{@row_height}px;"}
                 role="row"
+                aria-rowindex={@offset + index + 2}
               >
                 <div
-                  :for={col <- @cols}
+                  :for={{col, col_index} <- Enum.with_index(@cols)}
                   class="quadrille-cell"
                   style={cell_style(col)}
                   role="gridcell"
+                  aria-colindex={col_index + 1}
                 >
                   {cell_value(row, col.key)}
                 </div>

@@ -29,6 +29,7 @@ defmodule Quadrille.MixProject do
   defp deps do
     [
       {:phoenix_live_view, "~> 1.1"},
+      {:lazy_html, ">= 0.1.0", only: :test},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       # Dev-only: self-contained demo server (`mix dev`).
       {:bandit, "~> 1.0", only: :dev},
@@ -52,7 +53,7 @@ defmodule Quadrille.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib priv assets/js assets/css .formatter.exs mix.exs README.md LICENSE)
+      files: ~w(lib assets/js assets/css .formatter.exs mix.exs README.md LICENSE)
     ]
   end
 
