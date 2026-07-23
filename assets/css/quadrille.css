@@ -61,20 +61,38 @@
   text-overflow: ellipsis;
 }
 
-/* Drag handle on the right edge of each header cell. */
+/* Drag handle on the right edge of each header cell. A persistent divider line
+   marks where it is; hovering makes it prominent. Colors are themeable. */
+.quadrille {
+  --q-resizer-line: rgba(0, 0, 0, 0.15);
+  --q-resizer-line-hover: rgba(0, 0, 0, 0.45);
+}
+
 .quadrille-resizer {
   position: absolute;
   top: 0;
   right: 0;
-  width: 7px;
+  width: 9px;
   height: 100%;
   cursor: col-resize;
   user-select: none;
   touch-action: none;
 }
 
-.quadrille-resizer:hover {
-  background: rgba(0, 0, 0, 0.12);
+/* Always-visible divider at the column boundary. */
+.quadrille-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 1px;
+  background: var(--q-resizer-line);
+}
+
+.quadrille-resizer:hover::after {
+  width: 2px;
+  background: var(--q-resizer-line-hover);
 }
 
 .quadrille.quadrille-resizing {
