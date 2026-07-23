@@ -1,0 +1,11 @@
+{
+  "name": "quadrille",
+  "version": "0.1.0",
+  "description": "Client hook for the Quadrille LiveView data grid",
+  "type": "module",
+  "private": true,
+  "main": "js/quadrille.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}

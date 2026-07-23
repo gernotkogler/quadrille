@@ -37,7 +37,10 @@ defmodule Quadrille.MixProject do
   end
 
   defp aliases do
-    [dev: "run --no-halt dev.exs"]
+    [
+      dev: "run --no-halt dev.exs",
+      "test.js": "cmd --cd assets node --test"
+    ]
   end
 
   defp description do

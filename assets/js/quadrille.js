@@ -26,6 +26,8 @@
  * @type {import("phoenix_live_view").HooksOptions}
  */
 
+import { shouldLoadWindow, clampResizeDelta, reconcileWidths } from "./quadrille_core.js"
+
 const MIN_COLUMN_WIDTH = 40
 
 export const Quadrille = {
@@ -102,12 +104,16 @@ export const Quadrille = {
 
     const firstVisible = Math.floor(this.viewport.scrollTop / this.rowHeight)
 
-    const nearTop = firstVisible < offset + this.margin && offset > 0
-    const lastVisible = firstVisible + this.viewportRows
-    const nearBottom =
-      lastVisible > offset + limit - this.margin && offset + limit < totalCount
+    const load = shouldLoadWindow({
+      firstVisible,
+      viewportRows: this.viewportRows,
+      offset,
+      limit,
+      totalCount,
+      margin: this.margin,
+    })
 
-    if (nearTop || nearBottom) {
+    if (load) {
       this.inFlight = true
       this.pushEventTo(this.el, "load_window", { first_visible_row: firstVisible })
     }
@@ -155,23 +161,8 @@ export const Quadrille = {
 
     if (keys.length > 0 && budget > 0) {
       const widths = keys.map((k) => this.columnWidth(k))
-      let sum = widths.reduce((a, b) => a + b, 0)
-
-      for (let iter = 0; iter < 12 && sum > budget; iter++) {
-        const shrinkable = widths.reduce((s, w) => s + (w > MIN_COLUMN_WIDTH ? w : 0), 0)
-        if (shrinkable === 0) break
-
-        const excess = sum - budget
-        for (let i = 0; i < widths.length; i++) {
-          if (widths[i] > MIN_COLUMN_WIDTH) {
-            widths[i] = Math.max(MIN_COLUMN_WIDTH, widths[i] - (excess * widths[i]) / shrinkable)
-          }
-        }
-        sum = widths.reduce((a, b) => a + b, 0)
-      }
-
-      // Floor only reduces widths, so the fit is preserved.
-      keys.forEach((k, i) => this.setColumnWidth(k, Math.floor(widths[i])))
+      const fitted = reconcileWidths(widths, budget, MIN_COLUMN_WIDTH)
+      keys.forEach((k, i) => this.setColumnWidth(k, fitted[i]))
     }
 
     this.recomputeTotal()
@@ -217,9 +208,13 @@ export const Quadrille = {
     this.el.classList.add("quadrille-resizing")
 
     const onMove = (ev) => {
-      const maxDelta = startRight - rightMin // grow self by shrinking the neighbor
-      const minDelta = -(startWidth - MIN_COLUMN_WIDTH) // shrink self, neighbor grows
-      const delta = Math.max(minDelta, Math.min(maxDelta, Math.round(ev.clientX - startX)))
+      const delta = clampResizeDelta(
+        Math.round(ev.clientX - startX),
+        startWidth,
+        startRight,
+        MIN_COLUMN_WIDTH,
+        rightMin,
+      )
       this.setColumnWidth(key, startWidth + delta)
       // The fill neighbor shrinks on its own as this column's var grows.
       if (!rightIsFill) this.setColumnWidth(rightKey, startRight - delta)

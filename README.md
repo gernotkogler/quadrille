@@ -39,6 +39,17 @@ Early development. Roadmap:
 5. Autocomplete cell editor
 6. Multi-user live sync via PubSub
 
+## Development
+
+```sh
+mix dev        # self-contained demo server over 200k rows -> http://localhost:4000
+mix test       # Elixir tests (component render, window geometry)
+mix test.js    # JS tests (hook geometry: edge-detection, resize, reconcile)
+```
+
+The JS hook's pure logic lives in `assets/js/quadrille_core.js` and is unit-tested
+with Node's built-in test runner (no npm dependencies). `mix test.js` runs it.
+
 ## Installation
 
 Not yet published to Hex. During development, use a git dependency:
