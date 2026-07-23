@@ -216,6 +216,7 @@ defmodule Quadrille.Grid do
               :for={col <- @cols}
               class="quadrille-cell quadrille-header-cell"
               data-col={col.key}
+              data-fill={col.fill?}
               style={cell_style(col)}
               role="columnheader"
             >

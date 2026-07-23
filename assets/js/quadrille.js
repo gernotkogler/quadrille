@@ -44,7 +44,10 @@ export const Quadrille = {
 
     this.onScroll = () => this.scheduleCheck()
     this.viewport.addEventListener("scroll", this.onScroll, { passive: true })
-    this.onResize = () => this.measure()
+    this.onResize = () => {
+      this.measure()
+      this.reconcile()
+    }
     window.addEventListener("resize", this.onResize)
 
     this.onPointerDown = (e) => this.startResize(e)
@@ -57,6 +60,7 @@ export const Quadrille = {
     this.inFlight = false
     // Re-assert any resized widths in case a patch reset the root style.
     this.applyWidths(this.widths)
+    this.reconcile()
     this.maybeLoad()
   },
 
@@ -117,6 +121,62 @@ export const Quadrille = {
     )
   },
 
+  // Resizable columns — everything except the fill column.
+  fixedKeys() {
+    return Array.from(
+      this.el.querySelectorAll(".quadrille-header-cell[data-col]:not([data-fill])"),
+    ).map((c) => c.dataset.col)
+  },
+
+  fillKey() {
+    const cell = this.el.querySelector(".quadrille-header-cell[data-fill]")
+    return cell ? cell.dataset.col : null
+  },
+
+  // The fill column's configured width is its floor; it never shrinks past it.
+  fillFloor() {
+    const key = this.fillKey()
+    return key ? this.columnWidth(key) : 0
+  },
+
+  // Total width available to the fixed columns without overflowing.
+  budget() {
+    return this.viewport.clientWidth - this.fillFloor()
+  },
+
+  // Shrink fixed columns if their total (e.g. from stale saved widths) exceeds
+  // the budget, so every column stays visible and none goes below its minimum.
+  // Takes width only from columns still above the floor, iterating so that
+  // columns pinned at the floor don't force an overflow. Runs on mount and on
+  // window resize.
+  reconcile() {
+    const keys = this.fixedKeys()
+    const budget = this.budget()
+
+    if (keys.length > 0 && budget > 0) {
+      const widths = keys.map((k) => this.columnWidth(k))
+      let sum = widths.reduce((a, b) => a + b, 0)
+
+      for (let iter = 0; iter < 12 && sum > budget; iter++) {
+        const shrinkable = widths.reduce((s, w) => s + (w > MIN_COLUMN_WIDTH ? w : 0), 0)
+        if (shrinkable === 0) break
+
+        const excess = sum - budget
+        for (let i = 0; i < widths.length; i++) {
+          if (widths[i] > MIN_COLUMN_WIDTH) {
+            widths[i] = Math.max(MIN_COLUMN_WIDTH, widths[i] - (excess * widths[i]) / shrinkable)
+          }
+        }
+        sum = widths.reduce((a, b) => a + b, 0)
+      }
+
+      // Floor only reduces widths, so the fit is preserved.
+      keys.forEach((k, i) => this.setColumnWidth(k, Math.floor(widths[i])))
+    }
+
+    this.recomputeTotal()
+  },
+
   columnWidth(key) {
     const raw = this.el.style.getPropertyValue(`--q-col-${key}`)
     return parseFloat(raw) || 0
@@ -143,8 +203,14 @@ export const Quadrille = {
     this.el.classList.add("quadrille-resizing")
 
     const onMove = (ev) => {
-      const width = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + (ev.clientX - startX)))
-      this.setColumnWidth(key, width)
+      const desired = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + (ev.clientX - startX)))
+      // Cap so the fixed columns never overflow the budget: this column can only
+      // take the space the others aren't already using.
+      const sumOthers = this.fixedKeys()
+        .filter((k) => k !== key)
+        .reduce((sum, k) => sum + this.columnWidth(k), 0)
+      const maxWidth = Math.max(MIN_COLUMN_WIDTH, this.budget() - sumOthers)
+      this.setColumnWidth(key, Math.min(desired, maxWidth))
       this.recomputeTotal()
     }
 
@@ -182,6 +248,7 @@ export const Quadrille = {
       this.widths = {}
     }
     this.applyWidths(this.widths)
+    this.reconcile()
   },
 
   applyWidths(widths) {
