@@ -195,22 +195,34 @@ export const Quadrille = {
     const handle = e.target.closest(".quadrille-resizer")
     if (!handle) return
 
+    // A handle trades width only with the column immediately to its right, so
+    // dragging the email|city boundary shrinks city and widens email. The
+    // neighbor may be another fixed column or the fill column; either way the
+    // total stays constant, so nothing ever overflows.
+    const headerCell = handle.closest(".quadrille-header-cell")
+    const rightCell = headerCell && headerCell.nextElementSibling
+    if (!rightCell) return
+
     e.preventDefault()
     const key = handle.dataset.col
+    const rightKey = rightCell.dataset.col
+    const rightIsFill = rightCell.hasAttribute("data-fill")
     const startX = e.clientX
     const startWidth = this.columnWidth(key)
+    // The neighbor's *rendered* width — the fill column has no fixed var.
+    const startRight = Math.round(rightCell.getBoundingClientRect().width)
+    const rightMin = rightIsFill ? this.fillFloor() : MIN_COLUMN_WIDTH
+
     handle.setPointerCapture(e.pointerId)
     this.el.classList.add("quadrille-resizing")
 
     const onMove = (ev) => {
-      const desired = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + (ev.clientX - startX)))
-      // Cap so the fixed columns never overflow the budget: this column can only
-      // take the space the others aren't already using.
-      const sumOthers = this.fixedKeys()
-        .filter((k) => k !== key)
-        .reduce((sum, k) => sum + this.columnWidth(k), 0)
-      const maxWidth = Math.max(MIN_COLUMN_WIDTH, this.budget() - sumOthers)
-      this.setColumnWidth(key, Math.min(desired, maxWidth))
+      const maxDelta = startRight - rightMin // grow self by shrinking the neighbor
+      const minDelta = -(startWidth - MIN_COLUMN_WIDTH) // shrink self, neighbor grows
+      const delta = Math.max(minDelta, Math.min(maxDelta, Math.round(ev.clientX - startX)))
+      this.setColumnWidth(key, startWidth + delta)
+      // The fill neighbor shrinks on its own as this column's var grows.
+      if (!rightIsFill) this.setColumnWidth(rightKey, startRight - delta)
       this.recomputeTotal()
     }
 
